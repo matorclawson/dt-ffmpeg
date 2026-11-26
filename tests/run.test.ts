@@ -96,6 +96,30 @@ describe("run", () => {
     expect(second).toMatchObject({ exitCode: null });
   });
 
+  // The process has exited before the deadline; only the grandchild keeps its pipes open.
+  const endOrphan = (error: unknown): void => {
+    expect(error).toMatchObject({ exitCode: 0 });
+    const pid = Number((error as FFmpegError).stderr.toString());
+    expect(pid).toBeGreaterThan(0);
+    process.kill(pid);
+  };
+
+  it("times out when an exited process left its stderr held open", async () => {
+    const error = await failure(run(graph, { ...options("orphan"), timeoutMs: 1500 }));
+    expect(error).toBeInstanceOf(FFmpegTimeoutError);
+    endOrphan(error);
+  });
+
+  it("aborts when an exited process left its progress pipe held open", async () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 1500);
+    const error = await failure(
+      run(graph, { ...options("orphan"), signal: controller.signal, onProgress: () => {} }),
+    );
+    expect(error).toBeInstanceOf(FFmpegAbortError);
+    endOrphan(error);
+  });
+
   it("reports progress blocks split across writes", async () => {
     const events: Progress[] = [];
     const result = await run(graph, { ...options("progress"), onProgress: (p) => events.push(p) });

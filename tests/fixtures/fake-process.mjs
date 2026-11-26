@@ -1,4 +1,5 @@
 // Stands in for ffmpeg and ffprobe in unit tests. FAKE_MODE selects the behaviour.
+import { spawn } from "node:child_process";
 import { writeSync } from "node:fs";
 import { setInterval } from "node:timers";
 
@@ -23,6 +24,15 @@ if (mode === "ok") {
 } else if (mode === "progress-hang") {
   writeSync(3, "frame=1\nprogress=continue\n");
   wait();
+} else if (mode === "orphan") {
+  // Exit at once, leaving a grandchild that holds stderr (and fd 3, when there is one) open.
+  const fd3 = args.includes("pipe:3") ? [3] : [];
+  const grandchild = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"], {
+    detached: true,
+    stdio: ["ignore", "ignore", "inherit", ...fd3],
+  });
+  grandchild.unref();
+  process.stderr.write(String(grandchild.pid));
 } else if (mode === "probe") {
   process.stdout.write(
     JSON.stringify({

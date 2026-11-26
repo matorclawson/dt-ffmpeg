@@ -86,10 +86,17 @@ export function startProcess(argv: string[], options: ProcessOptions, pipes: Pip
 
   const done = new Promise<ProcessResult>((resolve, reject) => {
     let stopped: { kind: "timeout" | "abort" | "callback"; cause?: unknown } | undefined;
+    const fd3 = child.stdio[3] as Readable | undefined | null;
+    // Once stopped, do not wait for pipes that a grandchild may still hold open.
+    const destroyPipes = (): void => {
+      for (const stream of [child.stdout, child.stderr, fd3]) stream?.destroy();
+    };
     const stop = (reason: NonNullable<typeof stopped>): void => {
       if (stopped) return;
       stopped = reason;
-      child.kill("SIGKILL");
+      // A process that has already exited emits no further "exit" event.
+      if (child.exitCode !== null || child.signalCode !== null) destroyPipes();
+      else child.kill("SIGKILL");
     };
     const timer =
       options.timeoutMs === undefined ? undefined : setTimeout(() => stop({ kind: "timeout" }), options.timeoutMs);
@@ -100,7 +107,6 @@ export function startProcess(argv: string[], options: ProcessOptions, pipes: Pip
       options.signal?.removeEventListener("abort", onAbort);
     };
 
-    const fd3 = child.stdio[3] as Readable | undefined | null;
     fd3?.setEncoding("utf8").on("data", (text: string) => {
       try {
         pipes.onFd3?.(text);
@@ -109,10 +115,8 @@ export function startProcess(argv: string[], options: ProcessOptions, pipes: Pip
       }
     });
 
-    // Once killed, do not wait for pipes that a grandchild may still hold open.
     child.on("exit", () => {
-      if (!stopped) return;
-      for (const stream of [child.stdout, child.stderr, fd3]) stream?.destroy();
+      if (stopped) destroyPipes();
     });
     child.on("error", (cause: NodeJS.ErrnoException) => {
       if (child.pid !== undefined) return; // the process runs; "close" reports how it ended
