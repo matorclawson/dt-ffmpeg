@@ -15,6 +15,7 @@ While the project is below 1.0, minor releases may include breaking API changes.
 
 ### Intentional differences from the Python reference
 
+- Combining streams merges every stream's settings, also when they share nodes: each `globalArgs()` call is written once, and the later stream's overwrite policy wins. (Python dropped or repeated them depending on whether the node was already present.)
 - The fluent API names things explicitly: `pad()` selects a filter output pad and `select()` an input stream selector (Python overloaded indexing). `overwrite()` and `globalArgs()` return a new stream instead of changing the shared graph.
 - Combining two separately built chains of the same shape keeps both. Python treated structurally identical nodes from different graphs as one, silently dropping a branch.
 - Compile errors are `GraphError`: unknown stream references, filter cycles, a single-value option given `null` or a list. Filter arguments must be strings, numbers or booleans.

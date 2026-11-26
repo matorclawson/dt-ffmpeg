@@ -107,6 +107,35 @@ describe("fluent builder", () => {
     expect(out.getArgs()).toEqual(["-i", "in", "out"]);
   });
 
+  it("keeps the settings of a stream whose node is already present", () => {
+    const flipped = input("a.mp4").hflip();
+    const configured = flipped.overwrite("never").globalArgs("-progress", "url");
+    const args = filterStreams([flipped, configured], "hstack").output("out.mp4").getArgs();
+    expect(args.slice(-4)).toEqual(["out.mp4", "-progress", "url", "-n"]);
+  });
+
+  it("writes an inherited global argument once, and a repeated call twice", () => {
+    const shared = input("in.mp4").globalArgs("-hide_banner");
+    expect(mergeOutputs(shared.output("1.mp4"), shared.output("2.mp4")).getArgs()).toEqual([
+      "-i",
+      "in.mp4",
+      "1.mp4",
+      "2.mp4",
+      "-hide_banner",
+    ]);
+    const separate = (file: string) => input("in.mp4").output(file).globalArgs("-hide_banner");
+    expect(mergeOutputs(separate("1.mp4"), separate("2.mp4")).getArgs().slice(-2)).toEqual([
+      "-hide_banner",
+      "-hide_banner",
+    ]);
+  });
+
+  it("lets the later stream decide the overwrite policy", () => {
+    const source = input("in.mp4");
+    const merged = mergeOutputs(source.output("1.mp4").overwrite("never"), source.output("2.mp4").overwrite());
+    expect(merged.getArgs().at(-1)).toBe("-y");
+  });
+
   it("compares streams by structure", () => {
     const base = input("a.mp4");
     const trimmed = base.trim({ start_frame: 10 });

@@ -32,7 +32,8 @@ export class Builder {
   inputs: InputNode[] = [];
   filters: FilterNode[] = [];
   outputs: OutputNode[] = [];
-  globalArgs: string[] = [];
+  /** One entry per `globalArgs()` call, so a call inherited along two paths is written once. */
+  globalArgGroups: string[][] = [];
   overwrite: OverwritePolicy | null = null;
   private seq = 0;
   private readonly merged = new Map<Builder, Map<string, string>>();
@@ -42,7 +43,7 @@ export class Builder {
     copy.inputs = [...this.inputs];
     copy.filters = [...this.filters];
     copy.outputs = [...this.outputs];
-    copy.globalArgs = [...this.globalArgs];
+    copy.globalArgGroups = [...this.globalArgGroups];
     copy.overwrite = this.overwrite;
     copy.seq = this.seq;
     return copy;
@@ -61,7 +62,7 @@ export class Builder {
       inputs: this.inputs,
       filters: this.filters,
       outputs: this.outputs,
-      global_args: this.globalArgs,
+      global_args: this.globalArgGroups.flat(),
       overwrite: this.overwrite,
     });
   }
@@ -111,7 +112,7 @@ export class Builder {
     for (const node of other.outputs) {
       adopt(this.outputs, node, "out", (id) => ({ ...node, id, inputs: node.inputs.map(remap) }));
     }
-    this.globalArgs.push(...other.globalArgs);
+    this.globalArgGroups.push(...other.globalArgGroups.filter((g) => !this.globalArgGroups.includes(g)));
     if (other.overwrite !== null) this.overwrite = other.overwrite;
     this.seq = Math.max(this.seq, other.seq);
     this.merged.set(other, ids);
@@ -238,7 +239,7 @@ export class Stream {
 
   globalArgs(...args: string[]): Stream {
     const builder = this.builder.clone();
-    builder.globalArgs.push(...args);
+    builder.globalArgGroups.push([...args]);
     return new Stream(builder, this.ref);
   }
 
@@ -255,16 +256,18 @@ export class Stream {
   }
 }
 
-/** Bring the streams into one builder (a clone of the first) and return their references there. */
+/**
+ * Bring the streams into one builder (a clone of the first) and return their references there. Every stream's
+ * graph is merged, also when its node is already present: each `globalArgs()` call is kept once, and where
+ * streams set different overwrite policies the later stream wins.
+ */
 function combine(streams: Stream[]): { builder: Builder; refs: StreamRef[] } {
   const [first] = streams;
   if (!first) throw new GraphError("at least one stream is required");
   const builder = first.builder.clone();
   const refs = streams.map((stream) => {
     if (stream.builder === first.builder) return stream.ref;
-    const source = stream.builder.all().find((node) => node.id === stream.ref.node_id);
-    const present = source && findSame(builder.all(), source);
-    const id = present ? present.id : builder.merge(stream.builder).get(stream.ref.node_id);
+    const id = builder.merge(stream.builder).get(stream.ref.node_id);
     return { ...stream.ref, node_id: id ?? stream.ref.node_id };
   });
   return { builder, refs };
