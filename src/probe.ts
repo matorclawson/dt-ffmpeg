@@ -3,7 +3,7 @@ import { z } from "zod";
 import { optionsToArgs } from "./compile.js";
 import { FFmpegError } from "./errors.js";
 import type { Options } from "./ir.js";
-import { collect, startProcess, type ProcessOptions } from "./process.js";
+import { startProcess, type ProcessOptions } from "./process.js";
 
 export { BinaryNotFoundError, FFmpegAbortError, FFmpegError, FFmpegTimeoutError } from "./errors.js";
 
@@ -113,11 +113,10 @@ export async function probe(filename: string, options: ProbeOptions = {}): Promi
     ...optionsToArgs(options.options ?? {}),
     filename,
   ];
-  const running = startProcess(argv, options, { stdout: true });
-  const stdout = collect(running.stdout);
+  const running = startProcess(argv, options, { capture: true });
   const { stderr } = await running.done;
   try {
-    return ProbeResultSchema.parse(JSON.parse(stdout().toString("utf8")));
+    return ProbeResultSchema.parse(JSON.parse(running.captured().toString("utf8")));
   } catch (cause) {
     throw new FFmpegError("ffprobe returned output that is not a probe result", {
       argv,

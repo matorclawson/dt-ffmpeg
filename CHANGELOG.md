@@ -10,7 +10,7 @@ While the project is below 1.0, minor releases may include breaking API changes.
 
 ### Added
 
-- Phase 2: `dt-ffmpeg/run` (`run`, `runStreaming` with stdin/stdout pipes, live progress, timeout, `AbortSignal`) and `dt-ffmpeg/probe` (typed ffprobe). Differences from Python: stderr is always captured (the last 16 MiB by default) and never written to the caller's terminal; stdin is closed unless input is given, so ffmpeg cannot prompt; progress arrives while ffmpeg runs (on file descriptor 3) instead of after it exits; probe results are not cached. Binaries come from `FFMPEG_BINARY` / `FFPROBE_BINARY`, then `PATH` (full resolution and `doctor` are phase 3).
+- Phase 2: `dt-ffmpeg/run` (`run`, `runStreaming` with stdin/stdout pipes, live progress, timeout, `AbortSignal`) and `dt-ffmpeg/probe` (typed ffprobe). Differences from Python: stderr is always captured (the last 16 MiB by default) and never written to the caller's terminal; stdin is closed unless input is given, so ffmpeg cannot prompt; progress arrives while ffmpeg runs (on file descriptor 3) instead of after it exits; probe results are not cached; stdout held in memory is limited (256 MiB by default, `stdoutLimit`). Binaries come from `FFMPEG_BINARY` / `FFPROBE_BINARY`, then `PATH` (full resolution and `doctor` are phase 3).
 - Phase 1: graph IR with zod schemas, fluent builder, `compile`/`getArgs` and filtergraph escaping, with argv parity against the goldens exported from the Python reference (compile and escape cases; the recipe graphs compile to the same argv too, the recipe functions themselves come in phase 4).
 
 ### Intentional differences from the Python reference

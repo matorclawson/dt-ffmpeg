@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,6 +58,21 @@ describe("run", () => {
   it("names a missing binary", async () => {
     const error = await failure(run(graph, { cmd: join(work, "no-such-ffmpeg") }));
     expect(error).toBeInstanceOf(BinaryNotFoundError);
+  });
+
+  it("fails when captured stdout passes its limit", async () => {
+    const data = Buffer.alloc(1_000_000, 7);
+    const error = await failure(
+      run(graph, { ...options("echo"), input: data, captureStdout: true, stdoutLimit: 1000 }),
+    );
+    expect(error).toBeInstanceOf(FFmpegError);
+    expect((error as FFmpegError).message).toContain("more than 1000 bytes");
+  });
+
+  it("reports an output directory it cannot create", async () => {
+    writeFileSync(join(work, "plain-file"), "");
+    const error = await failure(run(input("in").output("plain-file/out.mp4").build(), options("ok")));
+    expect(error).toBeInstanceOf(FFmpegError);
   });
 
   it("pipes input to captured output", async () => {

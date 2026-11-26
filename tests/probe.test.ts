@@ -23,6 +23,10 @@ describe("probe", () => {
     });
   });
 
+  it("limits how much ffprobe output it holds", async () => {
+    await expect(probe("x", { ...options("probe"), stdoutLimit: 10 })).rejects.toThrow("more than 10 bytes");
+  });
+
   it("gives nulls for what is missing", () => {
     expect(summarize(ProbeResultSchema.parse({}))).toMatchObject({
       durationSeconds: null,

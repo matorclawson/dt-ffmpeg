@@ -1,9 +1,11 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 
 import { BinaryNotFoundError, FFmpegAbortError, FFmpegError, FFmpegTimeoutError } from "./errors.js";
 
 export const DEFAULT_STDERR_LIMIT = 16 * 1024 * 1024;
+
+export const DEFAULT_STDOUT_LIMIT = 256 * 1024 * 1024;
 
 export interface ProcessOptions {
   cwd?: string;
@@ -14,11 +16,18 @@ export interface ProcessOptions {
   signal?: AbortSignal;
   /** Bytes of stderr to keep, counted from the end. */
   stderrLimit?: number;
+  /**
+   * Bytes of stdout that may be captured in memory (`captureStdout`, `probe`). A process that writes more is
+   * killed and the run fails. Streamed stdout is not limited.
+   */
+  stdoutLimit?: number;
 }
 
 export interface Pipes {
   stdin?: boolean;
   stdout?: boolean;
+  /** Collect stdout in memory, up to `stdoutLimit`. */
+  capture?: boolean;
   /** Called with the text written to file descriptor 3. */
   onFd3?: (text: string) => void;
 }
@@ -33,6 +42,8 @@ export interface RunningProcess {
   stdout: Readable | null;
   /** Resolves on exit code 0; otherwise rejects with an `FFmpegError`. Settles after the process is gone. */
   done: Promise<ProcessResult>;
+  /** The captured stdout; complete once `done` has resolved. */
+  captured: () => Buffer;
 }
 
 /** Keeps the last `limit` bytes of a stream. */
@@ -66,26 +77,33 @@ export function startProcess(argv: string[], options: ProcessOptions, pipes: Pip
     });
     const done = Promise.reject<ProcessResult>(error);
     done.catch(() => {});
-    return { stdin: null, stdout: null, done };
+    return { stdin: null, stdout: null, done, captured: () => Buffer.alloc(0) };
   }
 
-  const child = spawn(command, args, {
-    cwd: options.cwd,
-    env: options.env,
-    stdio: [
-      pipes.stdin ? "pipe" : "ignore",
-      pipes.stdout ? "pipe" : "ignore",
-      "pipe",
-      ...(pipes.onFd3 ? ["pipe" as const] : []),
-    ],
-  });
+  let child: ChildProcess;
+  try {
+    child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: [
+        pipes.stdin ? "pipe" : "ignore",
+        pipes.stdout || pipes.capture ? "pipe" : "ignore",
+        "pipe",
+        ...(pipes.onFd3 ? ["pipe" as const] : []),
+      ],
+    });
+  } catch (cause) {
+    throw new FFmpegError(`could not start ${command}`, { argv, cause });
+  }
+  const chunks: Buffer[] = [];
+  let captured = 0;
   const stderr = tail(options.stderrLimit ?? DEFAULT_STDERR_LIMIT);
   child.stderr?.on("data", (chunk: Buffer) => stderr.add(chunk));
   // A process that exits without reading all of its input is reported by its exit code, not by EPIPE.
   child.stdin?.on("error", () => {});
 
   const done = new Promise<ProcessResult>((resolve, reject) => {
-    let stopped: { kind: "timeout" | "abort" | "callback"; cause?: unknown } | undefined;
+    let stopped: { kind: "timeout" | "abort" | "callback" | "overflow"; cause?: unknown } | undefined;
     const fd3 = child.stdio[3] as Readable | undefined | null;
     // Once stopped, do not wait for pipes that a grandchild may still hold open.
     const destroyPipes = (): void => {
@@ -106,6 +124,15 @@ export function startProcess(argv: string[], options: ProcessOptions, pipes: Pip
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onAbort);
     };
+
+    const limit = options.stdoutLimit ?? DEFAULT_STDOUT_LIMIT;
+    if (pipes.capture) {
+      child.stdout?.on("data", (chunk: Buffer) => {
+        captured += chunk.length;
+        if (captured > limit) stop({ kind: "overflow" });
+        else chunks.push(chunk);
+      });
+    }
 
     fd3?.setEncoding("utf8").on("data", (text: string) => {
       try {
@@ -131,6 +158,8 @@ export function startProcess(argv: string[], options: ProcessOptions, pipes: Pip
         reject(new FFmpegTimeoutError(`${command} timed out after ${options.timeoutMs} ms`, failure));
       } else if (stopped?.kind === "abort") {
         reject(new FFmpegAbortError(`${command} aborted`, { ...failure, cause: stopped.cause }));
+      } else if (stopped?.kind === "overflow") {
+        reject(new FFmpegError(`${command} wrote more than ${limit} bytes to stdout`, failure));
       } else if (stopped) {
         reject(stopped.cause);
       } else if (exitCode !== 0) {
@@ -143,12 +172,5 @@ export function startProcess(argv: string[], options: ProcessOptions, pipes: Pip
   // A caller streaming data attaches to `done` later; an early failure must not crash the process.
   done.catch(() => {});
 
-  return { stdin: child.stdin, stdout: child.stdout, done };
-}
-
-/** Collect a readable stream into one buffer. */
-export function collect(stream: Readable | null): () => Buffer {
-  const chunks: Buffer[] = [];
-  stream?.on("data", (chunk: Buffer) => chunks.push(chunk));
-  return () => Buffer.concat(chunks);
+  return { stdin: child.stdin, stdout: child.stdout, done, captured: () => Buffer.concat(chunks) };
 }
