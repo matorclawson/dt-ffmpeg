@@ -45,13 +45,15 @@ hooks:
 	echo "pre-push -> make verify ($$d)"
 
 # Release: the archive is made from the tagged commit, which must be an ancestor of MAIN_REF (fetch it first;
-# override MAIN_REF on hosts with another remote name). The archive and its .sha256 are written under a staging
-# directory and only then moved into place (sha256 first, archive last), so an interrupted run never leaves a bare archive
-# without its checksum; it can leave a checksum alone, which a rerun overwrites. An existing archive is never overwritten.
+# override MAIN_REF on hosts with another remote name). A lock directory lets one run at a time publish a version,
+# so an existing archive is never overwritten. The archive and its .sha256 are written under a staging directory and
+# only then moved into place (sha256 first, archive last), so an interrupted run never leaves a bare archive without
+# its checksum; it can leave a checksum alone, which a rerun overwrites. A failed run can leave its staging
+# directory behind. Releases live outside dist/, which `make clean` removes.
 # The npm pack tarball of the first release (design SOW 3.5) is added with the first release; until then the
 # source archive is the artifact.
 VERSION := $(shell sed -n 's/^  "version": "\(.*\)",$$/\1/p' package.json | head -1)
-ARCHIVE := dist/dt-ffmpeg-$(VERSION).tar.gz
+ARCHIVE := releases/dt-ffmpeg-$(VERSION).tar.gz
 MAIN_REF ?= upstream/main
 
 release:
@@ -62,11 +64,14 @@ release:
 	tagged=$$(git show "$$commit:package.json" | sed -n 's/^  "version": "\(.*\)",$$/\1/p' | head -1); \
 	test "$$tagged" = "$(VERSION)" || { echo "tagged package.json version $$tagged != $(VERSION)" >&2; exit 1; }; \
 	git show "$$commit:CHANGELOG.md" | grep -q "^## \[$(VERSION)\]" || { echo "tagged CHANGELOG has no $(VERSION) entry" >&2; exit 1; }; \
+	mkdir -p releases; lock="releases/.lock-$(VERSION)"; \
+	mkdir "$$lock" 2>/dev/null || { echo "$$lock exists: another release is running, or one was killed" >&2; exit 1; }; \
+	trap 'rmdir "$$lock"' EXIT; trap 'exit 1' HUP INT TERM; \
 	test ! -e $(ARCHIVE) || { echo "$(ARCHIVE) exists; refusing to overwrite a release" >&2; exit 1; }; \
-	mkdir -p dist; stage=$$(mktemp -d dist/.stage.XXXXXX); \
+	stage=$$(mktemp -d releases/.stage.XXXXXX); \
 	git archive --format=tar.gz --prefix=dt-ffmpeg-$(VERSION)/ -o "$$stage/$(notdir $(ARCHIVE))" "$$commit"; \
 	(cd "$$stage" && shasum -a 256 $(notdir $(ARCHIVE)) > $(notdir $(ARCHIVE)).sha256); \
-	mv "$$stage/$(notdir $(ARCHIVE)).sha256" "$$stage/$(notdir $(ARCHIVE))" dist/; rmdir "$$stage"; \
+	mv "$$stage/$(notdir $(ARCHIVE)).sha256" "$$stage/$(notdir $(ARCHIVE))" releases/; rmdir "$$stage"; \
 	echo "archived $$tag = $$commit"; cat $(ARCHIVE).sha256
 
 clean:

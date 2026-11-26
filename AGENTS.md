@@ -1,9 +1,9 @@
 # Agent instructions
 
-This repository is **ffmpeg-zeo**, a typed FFmpeg graph library.
+This repository is **dt-ffmpeg**, a TypeScript ffmpeg filter-graph package, being ported from Python (`ffmpeg-zeo`).
 
-- Use the skill in `.cursor/skills/ffmpeg-zeo/SKILL.md`.
-- Python import: `import ffmpeg_zeo`.
-- CLI: `uv run ffmpeg-zeo`.
-- MCP: `uv run ffmpeg-zeo-mcp` (stdio). See `plugin/ffmpeg-zeo/.mcp.json`.
-- Probe first, compile before run, prefer recipes, never invent filter names.
+- Gate: `make verify` (typecheck, lint, test, build). Setup: `make setup`. See `docs/RUN.md`.
+- Gates run on ENG-UK through Runtime. Never build or test on the Mac mini.
+- Source is in `src/`, tests in `src/` and `tests/`.
+- `reference/python/` is the frozen Python reference: not built, not part of the gate. Do not change its behaviour.
+- The skill and plugin under `.cursor/` and `plugin/` describe the published Python `ffmpeg-zeo 0.1.0`.

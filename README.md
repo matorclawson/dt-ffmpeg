@@ -295,13 +295,9 @@ process execution and typed failures.
 
 ## Development
 
-```bash
-git clone https://github.com/zeroemployeeorg/ffmpeg-zeo.git
-cd ffmpeg-zeo
-uv sync --extra dev --extra mcp
-make check
-uv build
-```
+This repository now holds the TypeScript rewrite: run `make setup`, then
+`make verify`. The Python commands above apply to the published
+`ffmpeg-zeo 0.1.0`, whose frozen source is in `reference/python/`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete contributor workflow
 and [CHANGELOG.md](CHANGELOG.md) for release history.

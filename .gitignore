@@ -62,6 +62,7 @@ tests/sample_data/out*.mp4
 .DS_Store
 Thumbs.db
 # Node
+releases/
 node_modules/
 coverage/
 *.tsbuildinfo
